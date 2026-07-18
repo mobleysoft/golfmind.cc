@@ -1,0 +1,20 @@
+{
+  "format": "mobdbt",
+  "name": "golfmind.cc_routes",
+  "version": "3.1.0",
+  "description": "golfmind.cc sovereign edge routes",
+  "venture": "golfmind.cc",
+  "domain": "golfmind.cc",
+  "collections": {
+    "routes": [
+      { "pattern": "GET /", "being": "index_being", "auth": false, "file": "index.html" },
+      { "pattern": "GET /*", "being": "home_being", "auth": false, "file": "index.html" }
+    ]
+  },
+  "generator": {
+    "auto_generated": true,
+    "source": "evolution_engine",
+    "gen": 1678,
+    "ts": "2026-04-07T22:03:57Z"
+  }
+}
