@@ -41,6 +41,14 @@
   .honesty { font-size:0.82rem; color:var(--muted); border-top:1px solid var(--border); padding-top:16px; margin-top:8px; }
   footer { max-width:880px; margin:0 auto; padding:24px; color:var(--muted); font-size:0.8rem; }
   a { color: var(--accent); }
+  .stat-grid { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:8px; }
+  .stat-tile { flex:1; min-width:140px; background:#150a1b; border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .stat-tile .stat-label { font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); margin-bottom:6px; }
+  .stat-tile .stat-value { font-size:1.6rem; font-weight:600; }
+  table { width:100%; border-collapse:collapse; margin-top:18px; font-size:0.9rem; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-weight:500; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.06em; }
+  .empty { color:var(--muted); font-size:0.9rem; padding:16px 0; }
 </style>
 </head>
 <body>
@@ -72,13 +80,31 @@
   </div>
 
   <div class="card">
+    <h2>Session history</h2>
+    <p style="color:var(--muted); font-size:0.9rem; margin-top:-8px;">Log today's pre-round prep — checklist completion and breathing cycles — and see it over time.</p>
+    <div class="stat-grid" id="statGrid"></div>
+    <div style="text-align:center;">
+      <button onclick="logSession()">Log this session</button>
+      <button class="secondary" onclick="clearSessions()">Clear history</button>
+    </div>
+    <table id="sessionTable">
+      <thead>
+        <tr><th>Date</th><th>Checklist</th><th>Breathing cycles</th></tr>
+      </thead>
+      <tbody id="sessionBody"></tbody>
+    </table>
+    <div class="empty" id="sessionEmptyMsg">No sessions logged yet — run the checklist and timer above, then log this session.</div>
+  </div>
+
+  <div class="card">
     <h2>What's real here, what isn't yet</h2>
     <p class="honesty">
-      The breathing timer and checklist above are real, functioning tools — the checklist state
-      persists in your browser between visits. What's not built yet: any actual AI-personalized
-      coaching, biometric input (heart-rate, HRV), or a tracked history of focus scores across
-      rounds. This page will be extended honestly as those pieces become real, not described as
-      if they already exist.
+      The breathing timer, checklist, and session history above are real, functioning tools — all
+      state persists in your browser between visits. What's not built yet: any actual
+      AI-personalized coaching, biometric input (heart-rate, HRV), or cross-device sync (this
+      history lives only in this browser, same honest limitation as golflink.cc's ledger). This
+      page will be extended honestly as those pieces become real, not described as if they
+      already exist.
     </p>
   </div>
 </main>
@@ -90,6 +116,7 @@
 <script>
 var breatheTimer = null;
 var breathePhaseIdx = 0;
+var sessionCyclesCompleted = 0;
 var phases = [
   { label: 'Breathe in…', scale: 1.15 },
   { label: 'Hold…', scale: 1.15 },
@@ -103,6 +130,7 @@ function runPhase() {
   circle.style.transform = 'scale(' + phase.scale + ')';
   circle.textContent = '';
   label.textContent = phase.label;
+  if (breathePhaseIdx > 0 && breathePhaseIdx % phases.length === 0) { sessionCyclesCompleted++; }
   breathePhaseIdx++;
 }
 function startBreathing() {
@@ -154,6 +182,69 @@ function resetChecklist() {
   renderChecklist();
 }
 renderChecklist();
+
+var SESSION_KEY = 'golfmind_sessions_v1';
+function loadSessions() {
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || '[]'); } catch (e) { return []; }
+}
+function saveSessions(list) { localStorage.setItem(SESSION_KEY, JSON.stringify(list)); }
+function checklistCompletedCount() {
+  var state = loadChecklist();
+  return ITEMS.reduce(function(n, item, i) { return n + (state[i] ? 1 : 0); }, 0);
+}
+function logSession() {
+  var sessions = loadSessions();
+  sessions.push({
+    date: new Date().toISOString().slice(0, 10),
+    checklistDone: checklistCompletedCount(),
+    checklistTotal: ITEMS.length,
+    breathingCycles: sessionCyclesCompleted
+  });
+  saveSessions(sessions);
+  sessionCyclesCompleted = 0;
+  renderSessions();
+}
+function clearSessions() {
+  localStorage.removeItem(SESSION_KEY);
+  renderSessions();
+}
+function computeStreak(sessions) {
+  var dates = {};
+  sessions.forEach(function(s) { dates[s.date] = true; });
+  var streak = 0;
+  var cursor = new Date();
+  while (true) {
+    var key = cursor.toISOString().slice(0, 10);
+    if (!dates[key]) { break; }
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+function renderSessions() {
+  var sessions = loadSessions();
+  var body = document.getElementById('sessionBody');
+  var emptyMsg = document.getElementById('sessionEmptyMsg');
+  var statGrid = document.getElementById('statGrid');
+  body.innerHTML = '';
+  var recent = sessions.slice(-5).reverse();
+  recent.forEach(function(s) {
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + s.date + '</td><td>' + s.checklistDone + '/' + s.checklistTotal + '</td><td>' + s.breathingCycles + '</td>';
+    body.appendChild(tr);
+  });
+  emptyMsg.style.display = sessions.length ? 'none' : 'block';
+
+  var avgChecklist = sessions.length
+    ? (sessions.reduce(function(sum, s) { return sum + s.checklistDone / s.checklistTotal; }, 0) / sessions.length * 100).toFixed(0) + '%'
+    : '—';
+  var streak = computeStreak(sessions);
+  statGrid.innerHTML =
+    '<div class="stat-tile"><div class="stat-label">Sessions logged</div><div class="stat-value">' + sessions.length + '</div></div>' +
+    '<div class="stat-tile"><div class="stat-label">Current streak</div><div class="stat-value">' + streak + (streak === 1 ? ' day' : ' days') + '</div></div>' +
+    '<div class="stat-tile"><div class="stat-label">Avg. checklist completion</div><div class="stat-value">' + avgChecklist + '</div></div>';
+}
+renderSessions();
 </script>
 </body>
 </html>
