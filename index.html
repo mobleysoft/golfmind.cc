@@ -97,14 +97,42 @@
   </div>
 
   <div class="card">
+    <h2>Pre-shot routine consistency timer</h2>
+    <p style="color:var(--muted); font-size:0.9rem; margin-top:-8px;">
+      Sports-psychology research on pre-performance routines (Cotterill, 2010, "Pre-performance
+      routines in sport: Current understanding and future directions") links performance under
+      pressure to the <em>timing consistency</em> of a golfer's routine, not just going through the
+      same steps. Time your routine — address to takeaway — below and track how consistent you
+      are round to round, the same real-measurement idea as golfcad.cc's tempo calculator, applied
+      to the mental-game side.
+    </p>
+    <div style="text-align:center;">
+      <div id="routineDisplay" style="font-size:2.2rem; font-weight:700; color:var(--accent); margin:12px 0;">0.0s</div>
+      <button id="routineStartBtn" onclick="startRoutine()">Start</button>
+      <button id="routineStopBtn" class="secondary" onclick="stopRoutine()" disabled>Stop</button>
+      <button id="routineSaveBtn" onclick="saveRoutineTiming()" disabled>Save this timing</button>
+    </div>
+    <div id="routineConsistencyLine" style="font-size:0.95rem; margin:14px 0 4px;"></div>
+    <table id="routineTable">
+      <thead><tr><th>Date</th><th>Time</th></tr></thead>
+      <tbody id="routineBody"></tbody>
+    </table>
+    <div class="empty" id="routineEmptyMsg">No timings saved yet — click Start before your practice swing, Stop at address, then save it.</div>
+    <div style="text-align:center;">
+      <button class="secondary" onclick="clearRoutineTimings()">Clear timing history</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>What's real here, what isn't yet</h2>
     <p class="honesty">
-      The breathing timer, checklist, and session history above are real, functioning tools — all
-      state persists in your browser between visits. What's not built yet: any actual
-      AI-personalized coaching, biometric input (heart-rate, HRV), or cross-device sync (this
-      history lives only in this browser, same honest limitation as golflink.cc's ledger). This
-      page will be extended honestly as those pieces become real, not described as if they
-      already exist.
+      The breathing timer, checklist, session history, and routine-consistency timer above are
+      real, functioning tools — all state persists in your browser between visits, and the
+      consistency score is a real standard-deviation calculation over your own saved timings, not
+      a canned number. What's not built yet: any actual AI-personalized coaching, biometric input
+      (heart-rate, HRV), or cross-device sync (all of this history lives only in this browser,
+      same honest limitation as golflink.cc's ledger). This page will be extended honestly as
+      those pieces become real, not described as if they already exist.
     </p>
   </div>
 </main>
@@ -245,6 +273,86 @@ function renderSessions() {
     '<div class="stat-tile"><div class="stat-label">Avg. checklist completion</div><div class="stat-value">' + avgChecklist + '</div></div>';
 }
 renderSessions();
+
+var ROUTINE_KEY = 'golfmind_routine_timings_v1';
+var routineStartTs = null;
+var routineTickTimer = null;
+var lastRoutineElapsedSec = null;
+
+function startRoutine() {
+  routineStartTs = Date.now();
+  document.getElementById('routineStartBtn').disabled = true;
+  document.getElementById('routineStopBtn').disabled = false;
+  document.getElementById('routineSaveBtn').disabled = true;
+  lastRoutineElapsedSec = null;
+  routineTickTimer = setInterval(function () {
+    var elapsed = (Date.now() - routineStartTs) / 1000;
+    document.getElementById('routineDisplay').textContent = elapsed.toFixed(1) + 's';
+  }, 100);
+}
+function stopRoutine() {
+  if (!routineStartTs) { return; }
+  clearInterval(routineTickTimer);
+  routineTickTimer = null;
+  lastRoutineElapsedSec = (Date.now() - routineStartTs) / 1000;
+  document.getElementById('routineDisplay').textContent = lastRoutineElapsedSec.toFixed(1) + 's';
+  document.getElementById('routineStartBtn').disabled = false;
+  document.getElementById('routineStopBtn').disabled = true;
+  document.getElementById('routineSaveBtn').disabled = false;
+  routineStartTs = null;
+}
+function loadRoutineTimings() {
+  try { return JSON.parse(localStorage.getItem(ROUTINE_KEY) || '[]'); } catch (e) { return []; }
+}
+function saveRoutineTimings(list) {
+  try { localStorage.setItem(ROUTINE_KEY, JSON.stringify(list)); } catch (e) {}
+}
+function saveRoutineTiming() {
+  if (lastRoutineElapsedSec === null) { return; }
+  var timings = loadRoutineTimings();
+  timings.push({ ts: Date.now(), seconds: lastRoutineElapsedSec });
+  saveRoutineTimings(timings);
+  lastRoutineElapsedSec = null;
+  document.getElementById('routineSaveBtn').disabled = true;
+  document.getElementById('routineDisplay').textContent = '0.0s';
+  renderRoutineTimings();
+}
+function clearRoutineTimings() {
+  try { localStorage.removeItem(ROUTINE_KEY); } catch (e) {}
+  renderRoutineTimings();
+}
+function stdDev(values) {
+  if (values.length < 2) { return null; }
+  var mean = values.reduce(function (a, b) { return a + b; }, 0) / values.length;
+  var variance = values.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / (values.length - 1);
+  return Math.sqrt(variance);
+}
+function consistencyLabel(sd) {
+  if (sd === null) { return 'Save at least 2 timings to see a consistency score.'; }
+  if (sd < 0.5) { return 'Very consistent (±' + sd.toFixed(2) + 's) — this is the range research links to routines holding up under pressure.'; }
+  if (sd < 1.5) { return 'Reasonably consistent (±' + sd.toFixed(2) + 's) — room to tighten it up.'; }
+  return 'Inconsistent (±' + sd.toFixed(2) + 's) — timing swings a lot round to round.';
+}
+function renderRoutineTimings() {
+  var timings = loadRoutineTimings();
+  var body = document.getElementById('routineBody');
+  var emptyMsg = document.getElementById('routineEmptyMsg');
+  var line = document.getElementById('routineConsistencyLine');
+  body.innerHTML = '';
+  var recent = timings.slice(-5).reverse();
+  recent.forEach(function (t) {
+    var tr = document.createElement('tr');
+    var d = new Date(t.ts);
+    tr.innerHTML = '<td>' + d.toLocaleDateString() + '</td><td>' + t.seconds.toFixed(1) + 's</td>';
+    body.appendChild(tr);
+  });
+  emptyMsg.style.display = timings.length ? 'none' : 'block';
+  var sd = stdDev(timings.map(function (t) { return t.seconds; }));
+  line.innerHTML = timings.length
+    ? '<strong>' + timings.length + '</strong> timing' + (timings.length === 1 ? '' : 's') + ' saved — ' + consistencyLabel(sd)
+    : '';
+}
+renderRoutineTimings();
 </script>
 </body>
 </html>
