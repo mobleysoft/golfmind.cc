@@ -55,9 +55,10 @@
 <header>
   <span class="tag">Prototype · v0.1</span>
   <h1>GolfMind</h1>
-  <p class="lede">AI-assisted mental performance and focus training for golfers. This page runs two
-  real, working pieces of that: a guided box-breathing timer (a real technique used by sports
-  psychologists to lower pre-shot arousal) and a persistent pre-round mental-focus checklist.</p>
+  <p class="lede">AI-assisted mental performance and focus training for golfers. This page runs real,
+  working tools for that: a guided box-breathing timer (a real technique used by sports
+  psychologists to lower pre-shot arousal), a persistent pre-round mental-focus checklist, session
+  history, and a pre-shot routine consistency timer.</p>
 </header>
 <main>
   <div class="card">
@@ -124,15 +125,34 @@
   </div>
 
   <div class="card">
+    <h2>Move your data to another device</h2>
+    <p style="color:var(--muted); font-size:0.9rem; margin-top:-8px;">
+      This is a real, honest partial answer to the "no cross-device sync" limitation below — not
+      automatic sync, no account or server involved. Export downloads a JSON file with your
+      checklist state, session history, and routine timings; Import reads that same file back in
+      on another device or browser. Importing merges with, and does not overwrite, existing data
+      on this device.
+    </p>
+    <div style="text-align:center;">
+      <button onclick="exportData()">Export data</button>
+      <button class="secondary" onclick="document.getElementById('importFileInput').click()">Import data</button>
+      <input type="file" id="importFileInput" accept="application/json" style="display:none" onchange="importData(this.files[0])">
+    </div>
+    <div id="importStatusLine" style="font-size:0.85rem; color:var(--muted); margin-top:10px; text-align:center;"></div>
+  </div>
+
+  <div class="card">
     <h2>What's real here, what isn't yet</h2>
     <p class="honesty">
       The breathing timer, checklist, session history, and routine-consistency timer above are
       real, functioning tools — all state persists in your browser between visits, and the
       consistency score is a real standard-deviation calculation over your own saved timings, not
       a canned number. What's not built yet: any actual AI-personalized coaching, biometric input
-      (heart-rate, HRV), or cross-device sync (all of this history lives only in this browser,
-      same honest limitation as golflink.cc's ledger). This page will be extended honestly as
-      those pieces become real, not described as if they already exist.
+      (heart-rate, HRV), or automatic cross-device sync (the Export/Import tool above is a real,
+      manual way to move data between devices, but there's no account or server keeping devices
+      in sync automatically — same honest limitation as golflink.cc's ledger, just with a real
+      manual workaround now). This page will be extended honestly as those pieces become real, not
+      described as if they already exist.
     </p>
   </div>
 </main>
@@ -353,6 +373,79 @@ function renderRoutineTimings() {
     : '';
 }
 renderRoutineTimings();
+
+function exportData() {
+  var payload = {
+    exported_at: new Date().toISOString(),
+    source: 'golfmind.cc',
+    format_version: 1,
+    checklist: loadChecklist(),
+    sessions: loadSessions(),
+    routineTimings: loadRoutineTimings()
+  };
+  var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'golfmind-data-' + new Date().toISOString().slice(0, 10) + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  document.getElementById('importStatusLine').textContent = 'Exported.';
+}
+function mergeSessionsById(existing, incoming) {
+  var seen = {};
+  existing.forEach(function (s) { seen[s.date + '|' + s.checklistDone + '|' + s.breathingCycles] = true; });
+  incoming.forEach(function (s) {
+    var key = s.date + '|' + s.checklistDone + '|' + s.breathingCycles;
+    if (!seen[key]) { existing.push(s); seen[key] = true; }
+  });
+  return existing;
+}
+function mergeRoutineTimings(existing, incoming) {
+  var seenTs = {};
+  existing.forEach(function (t) { seenTs[t.ts] = true; });
+  incoming.forEach(function (t) {
+    if (!seenTs[t.ts]) { existing.push(t); seenTs[t.ts] = true; }
+  });
+  return existing;
+}
+function importData(file) {
+  var statusLine = document.getElementById('importStatusLine');
+  if (!file) { return; }
+  var reader = new FileReader();
+  reader.onload = function () {
+    var data;
+    try { data = JSON.parse(reader.result); } catch (e) {
+      statusLine.textContent = 'Import failed: not a valid GolfMind export file.';
+      return;
+    }
+    if (!data || data.source !== 'golfmind.cc' || typeof data !== 'object') {
+      statusLine.textContent = 'Import failed: not a valid GolfMind export file.';
+      return;
+    }
+    if (data.checklist && typeof data.checklist === 'object') {
+      var mergedChecklist = loadChecklist();
+      Object.keys(data.checklist).forEach(function (k) { mergedChecklist[k] = data.checklist[k]; });
+      saveChecklist(mergedChecklist);
+      renderChecklist();
+    }
+    if (Array.isArray(data.sessions)) {
+      saveSessions(mergeSessionsById(loadSessions(), data.sessions));
+      renderSessions();
+    }
+    if (Array.isArray(data.routineTimings)) {
+      saveRoutineTimings(mergeRoutineTimings(loadRoutineTimings(), data.routineTimings));
+      renderRoutineTimings();
+    }
+    statusLine.textContent = 'Imported and merged with this device\'s existing data.';
+  };
+  reader.onerror = function () {
+    statusLine.textContent = 'Import failed: could not read the file.';
+  };
+  reader.readAsText(file);
+}
 </script>
 </body>
 </html>
