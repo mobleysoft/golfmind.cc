@@ -240,13 +240,22 @@ function checklistCompletedCount() {
   var state = loadChecklist();
   return ITEMS.reduce(function(n, item, i) { return n + (state[i] ? 1 : 0); }, 0);
 }
+var lastSessionLoggedAt = 0;
+function nextUniqueLoggedAt() {
+  // Date.now() alone can collide on a fast double-click; force strictly-increasing ms.
+  var ts = Date.now();
+  if (ts <= lastSessionLoggedAt) { ts = lastSessionLoggedAt + 1; }
+  lastSessionLoggedAt = ts;
+  return ts;
+}
 function logSession() {
   var sessions = loadSessions();
   sessions.push({
     date: new Date().toISOString().slice(0, 10),
     checklistDone: checklistCompletedCount(),
     checklistTotal: ITEMS.length,
-    breathingCycles: sessionCyclesCompleted
+    breathingCycles: sessionCyclesCompleted,
+    loggedAt: nextUniqueLoggedAt()
   });
   saveSessions(sessions);
   sessionCyclesCompleted = 0;
@@ -394,11 +403,17 @@ function exportData() {
   URL.revokeObjectURL(url);
   document.getElementById('importStatusLine').textContent = 'Exported.';
 }
+function sessionMergeKey(s) {
+  // Real sessions from 2026-09-21 onward carry a unique loggedAt timestamp so two
+  // genuinely distinct same-day sessions with identical stats don't collide on merge.
+  // Older exported sessions predate that field and fall back to the composite key.
+  return s.loggedAt != null ? ('t:' + s.loggedAt) : ('c:' + s.date + '|' + s.checklistDone + '|' + s.breathingCycles);
+}
 function mergeSessionsById(existing, incoming) {
   var seen = {};
-  existing.forEach(function (s) { seen[s.date + '|' + s.checklistDone + '|' + s.breathingCycles] = true; });
+  existing.forEach(function (s) { seen[sessionMergeKey(s)] = true; });
   incoming.forEach(function (s) {
-    var key = s.date + '|' + s.checklistDone + '|' + s.breathingCycles;
+    var key = sessionMergeKey(s);
     if (!seen[key]) { existing.push(s); seen[key] = true; }
   });
   return existing;
